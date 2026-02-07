@@ -334,7 +334,7 @@ setup_immich_files() {
     cat > "$env_file" <<EOF
 UPLOAD_LOCATION=${MOUNT_POINT}/library
 DB_DATA_LOCATION=${INSTALL_DIR}/postgres
-IMMICH_VERSION=v2
+IMMICH_VERSION=release
 IMMICH_HOST=0.0.0.0
 IMMICH_PORT=${port}
 DB_PASSWORD=${db_password}
