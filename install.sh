@@ -455,10 +455,68 @@ configure_firewall() {
 }
 
 ###############################################################################
-# Phase 7: 완료 안내
+# Phase 7: 와치독 설정
+###############################################################################
+setup_watchdog() {
+    log_step "Phase 7: 와치독 서비스 설정"
+
+    # watchdog.sh 복사
+    cp "$SCRIPT_DIR/watchdog.sh" "$INSTALL_DIR/watchdog.sh"
+    chmod +x "$INSTALL_DIR/watchdog.sh"
+    log_info "watchdog.sh 복사 완료"
+
+    # 실제 사용자의 Desktop 경로 결정
+    local real_user="${SUDO_USER:-$(whoami)}"
+    local desktop_dir="/home/${real_user}/Desktop"
+
+    # Desktop 디렉토리가 없으면 바탕화면(한글)도 확인
+    if [[ ! -d "$desktop_dir" ]]; then
+        local desktop_kr="/home/${real_user}/바탕화면"
+        if [[ -d "$desktop_kr" ]]; then
+            desktop_dir="$desktop_kr"
+        else
+            # 둘 다 없으면 Desktop 생성
+            mkdir -p "$desktop_dir"
+            chown "${real_user}:" "$desktop_dir"
+        fi
+    fi
+
+    local log_path="${desktop_dir}/immich-watchdog.log"
+
+    # systemd 서비스 파일 생성
+    cat > /etc/systemd/system/immich-watchdog.service <<EOF
+[Unit]
+Description=Immich Watchdog - 서비스 감시 및 자동 복구
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+Environment=WATCHDOG_LOG=${log_path}
+ExecStart=${INSTALL_DIR}/watchdog.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # systemd 등록 및 활성화
+    systemctl daemon-reload
+    systemctl enable immich-watchdog.service
+    systemctl start immich-watchdog.service
+    log_info "와치독 서비스 등록 및 시작 완료"
+    log_info "  로그 위치: $log_path"
+    log_info "  서비스 상태: systemctl status immich-watchdog"
+
+    log_info "Phase 7 완료: 와치독 설정됨"
+}
+
+###############################################################################
+# Phase 8: 완료 안내
 ###############################################################################
 show_status() {
-    log_step "Phase 7: 설치 완료"
+    log_step "Phase 8: 설치 완료"
 
     local ip_addr
     ip_addr="$(hostname -I | awk '{print $1}')"
@@ -479,12 +537,14 @@ show_status() {
     echo "  로그 파일: $LOG_FILE"
     echo ""
     echo "  유용한 명령어:"
-    echo "    서비스 상태: docker compose -f $INSTALL_DIR/docker-compose.yml ps"
-    echo "    로그 확인:   docker compose -f $INSTALL_DIR/docker-compose.yml logs -f"
-    echo "    서비스 중지: docker compose -f $INSTALL_DIR/docker-compose.yml down"
-    echo "    서비스 시작: docker compose -f $INSTALL_DIR/docker-compose.yml up -d"
-    echo "    업데이트:    docker compose -f $INSTALL_DIR/docker-compose.yml pull && \\"
-    echo "                 docker compose -f $INSTALL_DIR/docker-compose.yml up -d"
+    echo "    서비스 상태:   docker compose -f $INSTALL_DIR/docker-compose.yml ps"
+    echo "    로그 확인:     docker compose -f $INSTALL_DIR/docker-compose.yml logs -f"
+    echo "    서비스 중지:   docker compose -f $INSTALL_DIR/docker-compose.yml down"
+    echo "    서비스 시작:   docker compose -f $INSTALL_DIR/docker-compose.yml up -d"
+    echo "    업데이트:      docker compose -f $INSTALL_DIR/docker-compose.yml pull && \\"
+    echo "                   docker compose -f $INSTALL_DIR/docker-compose.yml up -d"
+    echo "    와치독 상태:   systemctl status immich-watchdog"
+    echo "    와치독 로그:   바탕화면/immich-watchdog.log"
     echo ""
     echo "=============================================="
     echo ""
@@ -513,6 +573,7 @@ main() {
     setup_immich_files
     start_immich
     configure_firewall
+    setup_watchdog
     show_status
 }
 

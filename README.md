@@ -25,6 +25,7 @@ sudo ./install.sh
 4. Immich 설정 파일 생성 (DB 비밀번호 자동 생성)
 5. Docker 컨테이너 시작
 6. UFW 방화벽 설정 (로컬 네트워크만 허용)
+7. 와치독 서비스 등록 (자동 복구 + 부팅 시 자동 시작)
 
 ## 설정 변경
 
@@ -51,6 +52,29 @@ COMPOSE_PROFILES=ml
 
 > RAM 8GB 이상에서 ML 활성화를 권장합니다.
 
+## 와치독
+
+설치 시 자동으로 등록되는 와치독 서비스가 60초마다 Immich 컨테이너 상태를 점검한다.
+컨테이너가 죽어있으면 자동으로 `docker compose up -d`로 복구하고, 라즈베리파이가 재부팅되어도 자동으로 시작된다.
+
+- 로그 위치: `~/Desktop/immich-watchdog.log` (바탕화면)
+- 로그는 10MB 초과 시 자동 로테이션됨
+
+```bash
+# 와치독 상태 확인
+sudo systemctl status immich-watchdog
+
+# 와치독 로그 실시간 확인
+tail -f ~/Desktop/immich-watchdog.log
+
+# 와치독 중지/시작
+sudo systemctl stop immich-watchdog
+sudo systemctl start immich-watchdog
+
+# 와치독 비활성화 (부팅 시 자동 시작 해제)
+sudo systemctl disable immich-watchdog
+```
+
 ## 업데이트
 
 ```bash
@@ -75,6 +99,12 @@ docker exec -t immich_postgres pg_dumpall -c -U postgres > /tmp/immich-db-backup
 ## 삭제
 
 ```bash
+# 와치독 중지 및 제거
+sudo systemctl stop immich-watchdog
+sudo systemctl disable immich-watchdog
+sudo rm /etc/systemd/system/immich-watchdog.service
+sudo systemctl daemon-reload
+
 # 서비스 중지 및 컨테이너 제거
 docker compose -f /opt/immich/docker-compose.yml down -v
 
@@ -148,6 +178,9 @@ sudo ufw status verbose
 
 # 리소스 사용량
 docker stats --no-stream
+
+# 와치독 상태
+sudo systemctl status immich-watchdog
 ```
 
 ## 라이선스
