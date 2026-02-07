@@ -27,6 +27,48 @@ rotate_log() {
     fi
 }
 
+# Immich API 포트 읽기
+get_api_port() {
+    local port
+    port="$(grep IMMICH_PORT "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2)"
+    echo "${port:-2283}"
+}
+
+# API 핑 한 번 시도
+ping_api() {
+    curl -sf "http://localhost:$(get_api_port)/api/server/ping" &>/dev/null
+}
+
+# 지수 백오프로 API 응답 대기 (최대 ~3분)
+wait_for_api() {
+    local delay=5
+    local elapsed=0
+    local max_wait=180    # 3분
+
+    log "[INFO] API 응답 대기 시작 (지수 백오프, 최대 ${max_wait}초)"
+
+    while [[ "$elapsed" -lt "$max_wait" ]]; do
+        sleep "$delay"
+        elapsed=$((elapsed + delay))
+
+        if ping_api; then
+            log "[INFO] 서비스 복구 성공 (API 응답 확인, ${elapsed}초 경과)"
+            return 0
+        fi
+
+        log "[INFO] API 아직 미응답 (${elapsed}초/${max_wait}초), 다음 대기: ${delay}초→$((delay * 2))초"
+        delay=$((delay * 2))
+
+        # 남은 시간보다 delay가 크면 남은 시간만큼만 대기
+        local remaining=$((max_wait - elapsed))
+        if [[ "$delay" -gt "$remaining" ]]; then
+            delay="$remaining"
+        fi
+    done
+
+    return 1
+}
+
 # Docker 데몬 자체가 살아있는지 확인
 check_docker() {
     if ! docker info &>/dev/null; then
@@ -73,18 +115,26 @@ check_and_restart() {
             return 1
         fi
 
-        # 복구 후 대기
-        sleep 30
+        # 지수 백오프로 API 응답 대기 (최대 ~3분)
+        if ! wait_for_api; then
+            log "[ERROR] 서비스 복구 후에도 API 응답 없음. 수동 확인 필요."
+        fi
+        return 0
+    fi
 
-        # API 핑으로 최종 확인
-        local port
-        port="$(grep IMMICH_PORT "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2)"
-        port="${port:-2283}"
+    # 컨테이너는 모두 running이지만 API가 응답하지 않는 경우
+    if ! ping_api; then
+        log "[WARN] 컨테이너 정상이나 API 미응답. immich_server 재시작 시도."
+        docker restart immich_server 2>>"$LOG_FILE"
 
-        if curl -sf "http://localhost:${port}/api/server/ping" &>/dev/null; then
-            log "[INFO] 서비스 복구 성공 (API 응답 확인)"
-        else
-            log "[WARN] 서비스 복구 후에도 API 응답 없음. 수동 확인 필요."
+        if ! wait_for_api; then
+            log "[ERROR] immich_server 재시작 후에도 API 응답 없음. 전체 재시작 시도."
+            docker compose -f "$compose_file" down 2>>"$LOG_FILE"
+            docker compose -f "$compose_file" up -d 2>>"$LOG_FILE"
+
+            if ! wait_for_api; then
+                log "[ERROR] 전체 재시작 후에도 API 응답 없음. 수동 확인 필요."
+            fi
         fi
     fi
 

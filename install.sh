@@ -501,11 +501,12 @@ RestartSec=30
 WantedBy=multi-user.target
 EOF
 
-    # systemd 등록 및 활성화
+    # 기존 와치독이 떠있으면 정리 후 새 버전으로 재시작
+    systemctl stop immich-watchdog.service 2>/dev/null || true
     systemctl daemon-reload
     systemctl enable immich-watchdog.service
-    systemctl start immich-watchdog.service
-    log_info "와치독 서비스 등록 및 시작 완료"
+    systemctl restart immich-watchdog.service
+    log_info "와치독 서비스 등록 및 (재)시작 완료"
     log_info "  로그 위치: $log_path"
     log_info "  서비스 상태: systemctl status immich-watchdog"
 
